@@ -1,0 +1,36 @@
+# Local development infrastructure for AI Copilot.
+#
+# Start:   docker compose up -d postgres
+# Status:  docker compose ps
+# Logs:    docker compose logs -f postgres
+# Stop:    docker compose down          (keeps the database volume)
+#
+# "docker compose down -v" deletes the database volume and all local data.
+#
+# Values can be overridden in a root-level .env file (not committed).
+# If port 5432 is already in use on your machine, set POSTGRES_PORT there and
+# use the same port in DATABASE_URL in backend/.env.
+
+name: ai-copilot
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ai_copilot}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  postgres_data:
