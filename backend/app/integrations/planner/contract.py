@@ -13,12 +13,12 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 
 class PlannerInfo(BaseModel):
-    name: str
-    version: str
+    name: str = Field(max_length=64)
+    version: str = Field(max_length=32)
 
 
 class IntentSpec(BaseModel):
-    summary: str = Field(min_length=1)
+    summary: str = Field(min_length=1, max_length=512)
     confidence: float = Field(ge=0.0, le=1.0)
 
 
@@ -30,8 +30,8 @@ class RunCommandParams(BaseModel):
     @classmethod
     def argv_items(cls, argv: list[str]) -> list[str]:
         for a in argv:
-            if not a or len(a) > 1024:
-                raise ValueError("each argv item must be 1-1024 characters")
+            if not a.strip() or len(a) > 1024:
+                raise ValueError("each argv item must be 1-1024 non-blank characters")
         return argv
 
 
@@ -40,7 +40,7 @@ class Node(BaseModel):
 
     key: str = Field(min_length=1)
     action_type: Literal["run_command"]
-    description: str = ""
+    description: str = Field(default="", max_length=512)
     params: RunCommandParams
 
 

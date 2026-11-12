@@ -59,3 +59,26 @@ def test_parse_json_strips_fences_and_rejects_non_objects():
             pass
         else:
             raise AssertionError(bad)
+
+
+def test_refusal_stops_the_chain(monkeypatch):
+    from app.integrations.llm.providers import Refused
+
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    a, b = Fake("a", [Refused("declined")]), Fake("b", ['{"nodes": []}'])
+    try:
+        gateway(a, b).complete("rm -rf /", json_mode=True)
+    except Refused:
+        pass
+    else:
+        raise AssertionError("expected Refused to propagate")
+    assert (a.calls, b.calls) == (1, 0)
+
+
+def test_groq_json_validate_failed_is_a_refusal():
+    from app.integrations.llm.providers import _refusal_from_error_body
+
+    body = {"error": {"code": "json_validate_failed", "failed_generation": "I can't comply."}}
+    assert _refusal_from_error_body(body) == "I can't comply."
+    assert _refusal_from_error_body({"error": {"code": "other"}}) is None
+    assert _refusal_from_error_body("not a dict") is None

@@ -96,3 +96,35 @@ def test_contract_rejects(mutate, msg):
     mutate(g)
     with pytest.raises(ValidationError, match=msg):
         PlannerGraph.model_validate(g)
+
+
+def test_model_json_refusal_raises_planning_refused():
+    from app.integrations.planner.llm_planner import PlanningRefused
+
+    p, provider = planner({"refusal": "Deleting the whole system is not allowed."})
+    with pytest.raises(PlanningRefused) as exc:
+        p.plan("rm -rf / with sudo")
+    assert "not allowed" in exc.value.reason
+    assert exc.value.provider == "fake"
+    assert len(provider.prompts) == 1  # no repair attempt on a refusal
+
+
+def test_provider_refusal_raises_planning_refused():
+    from app.integrations.llm.providers import Refused
+    from app.integrations.planner.llm_planner import PlanningRefused
+
+    class Declining:
+        name, model = "groq", "m"
+
+        def complete(self, prompt, *, json_mode):
+            raise Refused("groq declined: I can't comply with that request.")
+
+    gw = LLMGateway(Settings(LLM_MAX_RETRIES=3), providers=[Declining(), Scripted(GOOD)])
+    with pytest.raises(PlanningRefused, match="can't comply"):
+        LLMPlanner(gw).plan("delete everything")
+
+
+def test_prompt_offers_refusal_shape():
+    p, provider = planner(GOOD)
+    p.plan("x")
+    assert '{"refusal"' in provider.prompts[0]

@@ -21,6 +21,11 @@ class Transient(ProviderError):
     """Temporary failure (5xx, timeout, empty reply); may be retried."""
 
 
+class Refused(ProviderError):
+    """The model declined the request. The gateway must NOT try another
+    provider: a refusal is an answer, not an outage."""
+
+
 class Provider(Protocol):
     name: str
     model: str
@@ -57,6 +62,12 @@ class GeminiProvider:
             if e.code == 429:
                 raise RateLimited("gemini quota exhausted") from e
             raise ProviderError(f"gemini {e.code}: {e.message}") from e
+        feedback = getattr(resp, "prompt_feedback", None)
+        if feedback is not None and getattr(feedback, "block_reason", None):
+            raise Refused(f"gemini blocked the prompt: {feedback.block_reason}")
+        candidates = getattr(resp, "candidates", None) or []
+        if candidates and str(getattr(candidates[0], "finish_reason", "")).endswith("SAFETY"):
+            raise Refused("gemini stopped for safety")
         if not resp.text:
             raise Transient("gemini returned an empty response")
         return resp.text
@@ -92,8 +103,26 @@ class OpenAICompatibleProvider:
         except APIStatusError as e:
             if e.status_code >= 500:
                 raise Transient(f"{self.name} {e.status_code}") from e
+            refusal = _refusal_from_error_body(e.body)
+            if refusal:
+                raise Refused(f"{self.name} declined: {refusal}") from e
             raise ProviderError(f"{self.name} {e.status_code}: {e.message}") from e
-        content = resp.choices[0].message.content
+        choice = resp.choices[0]
+        refusal = getattr(choice.message, "refusal", None)
+        if refusal:
+            raise Refused(f"{self.name} declined: {refusal}")
+        content = choice.message.content
         if not content:
             raise Transient(f"{self.name} returned an empty response")
         return content
+
+
+def _refusal_from_error_body(body) -> str | None:
+    """Groq answers a JSON-mode request the model declined with HTTP 400,
+    code `json_validate_failed`, and the model's words in `failed_generation`."""
+    if not isinstance(body, dict):
+        return None
+    err = body.get("error", body)
+    if isinstance(err, dict) and err.get("code") == "json_validate_failed":
+        return str(err.get("failed_generation") or "model did not produce JSON")[:200]
+    return None

@@ -19,6 +19,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from app.integrations.llm.gateway import LLMGateway
+from app.integrations.llm.providers import Refused
 from app.integrations.planner.contract import PlannerGraph
 
 log = logging.getLogger(__name__)
@@ -51,6 +52,10 @@ Return ONE JSON object with exactly this shape:
   "edges": [{{"from": "n1", "to": "n2"}}]
 }}
 
+If the request is unsafe, impossible in this sandbox, or too vague to act on, do NOT
+invent placeholder nodes. Return instead:
+{{"refusal": "<one sentence saying why>"}}
+
 Rules:
 - 1 to 20 nodes, unique keys n1, n2, ...; an edge "from" A "to" B means B runs after A.
 - Keep the graph minimal. Do not add a node to verify another node.
@@ -70,6 +75,15 @@ Return ONLY a corrected JSON object."""
 
 DEFAULT_ACTION_TYPES = {"run_command": {"argv": "list[str], 1-32 items", "timeout_s": "int, 1-120"}}
 DEFAULT_ALLOWED_COMMANDS = ["python", "python3", "ls", "cat", "echo", "mkdir", "cp", "mv", "wc", "head", "tail", "sort", "grep", "find", "touch"]
+
+
+class PlanningRefused(Exception):
+    """The model declined to plan this request. Not a provider failure:
+    the caller should fail the plan and show `reason` to the user."""
+
+    def __init__(self, reason: str, provider: str | None = None):
+        super().__init__(reason)
+        self.reason, self.provider = reason, provider
 
 
 @dataclass(frozen=True)
@@ -103,20 +117,27 @@ class LLMPlanner:
         )
 
         t0 = time.perf_counter()
-        data, completion = self.llm.complete_json(rendered)
         attempts = self.llm.repair_attempts
+        prompt_now = rendered
         for attempt in range(attempts + 1):
-            data["planner"] = {"name": self.name, "version": self.version}
             try:
-                graph = PlannerGraph.model_validate(data)
+                completion = self.llm.complete(prompt_now, json_mode=True)
+            except Refused as e:
+                log.info("plan refused by provider: %s", e)
+                raise PlanningRefused(str(e)) from e
+            try:
+                data = self.llm.parse_json(completion.text)
+                if refusal := data.get("refusal"):
+                    log.info("plan refused by model: %s", refusal)
+                    raise PlanningRefused(str(refusal)[:500], completion.provider)
+                graph = PlannerGraph.model_validate({**data, "planner": {"name": self.name, "version": self.version}})
                 break
-            except ValidationError as e:
+            except (ValidationError, ValueError) as e:
                 if attempt == attempts:
                     raise
-                log.warning("planner schema repair %d/%d: %s", attempt + 1, attempts, e.errors()[0]["msg"])
-                data, completion = self.llm.complete_json(
-                    rendered + _REPAIR.format(previous=json.dumps(data), errors=e)
-                )
+                msg = e.errors()[0]["msg"] if isinstance(e, ValidationError) else str(e)
+                log.warning("planner repair %d/%d: %s", attempt + 1, attempts, msg)
+                prompt_now = rendered + _REPAIR.format(previous=completion.text[:4000], errors=e)
 
         latency_ms = int((time.perf_counter() - t0) * 1000)
         log.info("plan ok nodes=%d edges=%d provider=%s latency_ms=%d",

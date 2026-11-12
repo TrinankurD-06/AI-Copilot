@@ -19,8 +19,8 @@ class Settings(BaseSettings):
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_MODEL: str = "openrouter/free"
     LLM_TIMEOUT_S: int = 30
-    LLM_MAX_RETRIES: int = 3
-    LLM_SCHEMA_REPAIR_ATTEMPTS: int = 1
+    LLM_MAX_RETRIES: int = Field(default=3, ge=1)
+    LLM_SCHEMA_REPAIR_ATTEMPTS: int = Field(default=1, ge=0)
 
 
 settings = Settings()

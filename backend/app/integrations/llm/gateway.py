@@ -1,7 +1,8 @@
 """Single entry point for every LLM call made by the planner adapter.
 
 Providers are tried in configured order. Transient errors are retried with
-backoff; a rate-limited or failing provider is skipped. Each call is logged
+backoff; a rate-limited or failing provider is skipped. A refusal stops the
+chain at once, so a declined request is never re-sent to a laxer model. Each call is logged
 with provider, model and latency so plans can record which model made them.
 """
 
@@ -20,12 +21,14 @@ from app.integrations.llm.providers import (
     Provider,
     ProviderError,
     RateLimited,
+    Refused,
     Transient,
 )
 
 log = logging.getLogger(__name__)
 
-_FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
+_MISSING = object()
+_FENCED = re.compile(r"```(?:json)?\s*(\{.*\})\s*```", re.DOTALL)
 
 
 @dataclass(frozen=True)
@@ -71,6 +74,9 @@ class LLMGateway:
                     ms = int((time.perf_counter() - t0) * 1000)
                     log.info("llm ok provider=%s model=%s latency_ms=%d", p.name, p.model, ms)
                     return Completion(text, p.name, p.model, ms)
+                except Refused as e:
+                    log.warning("llm refused provider=%s reason=%s", p.name, e)
+                    raise  # an answer, not an outage: never shop it to another provider
                 except RateLimited as e:
                     log.warning("llm skip provider=%s reason=%s", p.name, e)
                     last = e
@@ -85,6 +91,10 @@ class LLMGateway:
                     log.warning("llm fail provider=%s reason=%s", p.name, e)
                     last = e
                     break
+                except Exception as e:  # SDK surprise: do not let one provider sink failover
+                    log.error("llm crash provider=%s", p.name, exc_info=True)
+                    last = ProviderError(f"{p.name} raised {type(e).__name__}: {e}")
+                    break
         raise RuntimeError(f"all LLM providers failed; last error: {last}")
 
     def complete_json(self, prompt: str) -> tuple[dict, Completion]:
@@ -93,11 +103,23 @@ class LLMGateway:
 
     @staticmethod
     def parse_json(text: str) -> dict:
-        cleaned = _FENCE.sub("", text.strip())
-        try:
-            data = json.loads(cleaned)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"invalid JSON from LLM: {text[:200]!r}") from e
+        """Accept a bare object, a fenced block, or prose around either."""
+        text = text.strip()
+        candidates = [text]
+        if m := _FENCED.search(text):
+            candidates.insert(0, m.group(1))
+        start, end = text.find("{"), text.rfind("}")
+        if start != -1 and end > start:
+            candidates.append(text[start:end + 1])
+        data = _MISSING
+        for c in candidates:
+            try:
+                data = json.loads(c)
+                break
+            except json.JSONDecodeError:
+                continue
+        if data is _MISSING:
+            raise ValueError(f"invalid JSON from LLM: {text[:200]!r}")
         if not isinstance(data, dict):
             raise ValueError(f"expected a JSON object, got {type(data).__name__}")
         return data
