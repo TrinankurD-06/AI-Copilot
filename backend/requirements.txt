@@ -4,4 +4,5 @@ sqlalchemy
 alembic
 psycopg2-binary
 pydantic
-pydantic-settings
+pydantic-settingsgoogle-genai
+openai
