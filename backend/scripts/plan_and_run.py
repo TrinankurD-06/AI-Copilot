@@ -7,7 +7,9 @@
     python scripts/plan_and_run.py --plan-only "..." # no Docker needed
 
 Files named with --files are created empty in the plan's workspace (runs/<plan_id>/)
-so the demo has something to act on. Needs keys in backend/.env; Docker for execution.
+so the demo has something to act on. Needs keys in backend/.env. Execution uses the
+minimal prototype in app/integrations/docker/sandbox.py and needs Docker; without it
+the plan is printed and nothing runs.
 """
 
 from __future__ import annotations
@@ -66,16 +68,15 @@ def main() -> int:
         ans = input(f"\nRun {node.key} [{' '.join(node.params.argv)}]? (y/n) ").strip().lower()
         return ans == "y"
 
-    run = runner.run_graph(g, approve=approve)
-    print(f"\nRun {run.plan_id}: {'OK' if run.ok else 'STOPPED'}")
-    for r in run.results:
-        print(f"  {r.key}: {r.status} exit={r.exit_code} {r.duration_ms} ms")
-        if r.stdout.strip():
-            print("     stdout: " + r.stdout.strip().replace("\n", "\n             ")[:800])
-        if r.stderr.strip():
-            print("     stderr: " + r.stderr.strip()[:400])
-    print("  workspace:", ", ".join(run.workspace_files) or "(empty)", f"  -> runs/{run.plan_id}/")
-    return 0 if run.ok else 1
+    results = runner.run_graph(g, approve=approve)
+    ok = bool(results) and all(r.status == "succeeded" for r in results)
+    print(f"\nRun {runner.plan_id}: {'OK' if ok else 'STOPPED'}")
+    for r in results:
+        print(f"  {r.key}: {r.status} exit={r.exit_code}")
+        if r.output.strip():
+            print("     output: " + r.output.strip().replace("\n", "\n             ")[:800])
+    print("  workspace:", ", ".join(runner.files()) or "(empty)", f"  -> runs/{runner.plan_id}/")
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":
