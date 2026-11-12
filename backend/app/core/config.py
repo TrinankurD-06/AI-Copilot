@@ -25,5 +25,9 @@ class Settings(BaseSettings):
     PLANNER_MIN_CONFIDENCE: float = Field(default=0.5, ge=0.0, le=1.0)
     PLANNER_ALLOW_INLINE_CODE: bool = False
 
+    # Minimal sandbox check (prototype; the real profile is the backend owner's).
+    SANDBOX_IMAGE: str = "python:3.12-alpine"
+    SANDBOX_TIMEOUT_S: int = Field(default=30, ge=1, le=120)
+
 
 settings = Settings()

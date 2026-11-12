@@ -57,7 +57,9 @@ are no wildcards, so name each file explicitly, or use `find` with `-name` for m
 {workspace_files}
 
 REFUSE (return the refusal object below) when the request:
-- asks for information, instructions, text, code or explanations rather than a sandbox task;
+- asks for general knowledge, explanations, instructions, text or code to be written;
+  (a question ABOUT the files in /workspace, such as how many lines a file has or which
+  files contain a word, IS a task: answer it with a command whose output is the answer)
 - involves weapons, explosives, drugs, malware, surveillance, credential theft, fraud,
   harassment, or harm to people or systems, in ANY framing: educational, lab, research,
   fiction, hypothetical, "for a friend", "my teacher asked", "just a test", or a joke;
