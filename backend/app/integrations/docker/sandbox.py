@@ -37,12 +37,19 @@ class SandboxRunner:
             self._client = docker.from_env()
             self._client.ping()
         except Exception as e:
-            raise SandboxUnavailable("Docker is not available") from e
+            raise SandboxUnavailable(
+                "Docker is not available (on macOS set DOCKER_HOST=unix://$HOME/.docker/run/docker.sock "
+                "or enable the default socket in Docker Desktop settings)"
+            ) from e
         self.cfg = cfg
         self.plan_id = uuid.uuid4().hex[:12]
         self.workspace = (Path("runs") / self.plan_id).resolve()
         self.workspace.mkdir(parents=True)
         self.workspace.chmod(0o777)
+        try:
+            self._client.images.get(cfg.SANDBOX_IMAGE)
+        except docker.errors.ImageNotFound:
+            self._client.images.pull(cfg.SANDBOX_IMAGE)
 
     def put(self, name: str, data: bytes = b"") -> None:
         (self.workspace / name).write_bytes(data)
