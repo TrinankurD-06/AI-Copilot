@@ -88,3 +88,19 @@ Each entry records what was decided, what else was considered and why. Add a new
 ## D-16 — Unmatched actions default to medium risk
 - **Alternatives:** default to low; default to critical.
 - **Why:** anything the rules do not recognise should need a human, but should not make every new plan fail outright.
+
+## D-17 — Graph contract v1 accepted by the planner owner (answers Q-01)
+- **Alternatives:** change field names or move to a steps-with-`depends_on` list.
+- **Why:** the contract as drafted maps cleanly onto one LLM call: intent and graph come back together, edges express ordering, and `argv` lists keep D-11. The planner validates the same rules locally (`backend/app/integrations/planner/contract.py`) so it can repair a bad answer before the backend sees it; the backend's `graph_contract.py` (T-007) stays the authority.
+
+## D-18 — The real planner is an in-process adapter with a 30-second LLM timeout (answers Q-02)
+- **Alternatives:** a separate HTTP planner service.
+- **Why:** one process, one deployment, no extra network hop for the MVP. Provider calls time out at `LLM_TIMEOUT_S` (default 30); a plan is one call plus at most one repair call.
+
+## D-19 — Port, mock and real adapter live together in `backend/app/integrations/planner/` (answers Q-03)
+- **Alternatives:** a top-level `planner/` package.
+- **Why:** the backend selects a planner by name through config (T-103, T-303); keeping them side by side makes that switch a one-line import.
+
+## D-20 — The planner enforces the allowlist itself and refuses rather than guess (answers Q-04)
+- **Alternatives:** rely on the backend alone to reject anything outside the allowlist.
+- **Why:** the backend still rejects (D-07), but a planner that hands over `python3 -c ...` or `cat /etc/passwd` wastes a round trip and, if a rule is ever missing, risks a real system. The planner receives `allowed_commands` and `denied_commands` in `context`, lints every node (allowlist, no shells, no inline-code flags, no paths outside `/workspace`, no URLs, no free text through `echo`), repairs once, and otherwise raises `PlanningRefused`. Requests for harmful content, information, or anything outside the sandbox are refused in any framing, and a model or provider refusal stops the provider chain instead of being retried on a laxer model.

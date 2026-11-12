@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     LLM_TIMEOUT_S: int = 30
     LLM_MAX_RETRIES: int = Field(default=3, ge=1)
     LLM_SCHEMA_REPAIR_ATTEMPTS: int = Field(default=1, ge=0)
+    # Planner-side policy (the backend validates again; this is the first gate).
+    PLANNER_MIN_CONFIDENCE: float = Field(default=0.5, ge=0.0, le=1.0)
+    PLANNER_ALLOW_INLINE_CODE: bool = False
 
 
 settings = Settings()

@@ -82,3 +82,37 @@ def test_groq_json_validate_failed_is_a_refusal():
     assert _refusal_from_error_body(body) == "I can't comply."
     assert _refusal_from_error_body({"error": {"code": "other"}}) is None
     assert _refusal_from_error_body("not a dict") is None
+
+
+
+def test_openai_compatible_empty_choices_is_transient():
+    from types import SimpleNamespace
+    from app.integrations.llm.providers import OpenAICompatibleProvider, Transient
+
+    prov = OpenAICompatibleProvider.__new__(OpenAICompatibleProvider)
+    prov.name, prov.model = "x", "m"
+    prov._client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(
+        create=lambda **kw: SimpleNamespace(choices=[]))))
+    try:
+        prov.complete("hi", json_mode=True)
+    except Transient:
+        pass
+    else:
+        raise AssertionError("expected Transient")
+
+
+def test_gemini_non_stop_finish_reason_is_a_refusal():
+    from types import SimpleNamespace
+    from app.integrations.llm.providers import GeminiProvider, Refused
+
+    for reason in ("FinishReason.SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT"):
+        prov = GeminiProvider.__new__(GeminiProvider)
+        prov.model = "m"
+        resp = SimpleNamespace(text="", prompt_feedback=None,
+                               candidates=[SimpleNamespace(finish_reason=reason)])
+        prov._client = SimpleNamespace(models=SimpleNamespace(generate_content=lambda **kw: resp))
+        try:
+            prov.complete("hi", json_mode=True)
+        except Refused:
+            continue
+        raise AssertionError(reason)

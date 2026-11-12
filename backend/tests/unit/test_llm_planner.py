@@ -6,7 +6,7 @@ from pydantic import ValidationError
 from app.core.config import Settings
 from app.integrations.llm.gateway import LLMGateway
 from app.integrations.planner.contract import PlannerGraph
-from app.integrations.planner.llm_planner import LLMPlanner
+from app.integrations.planner.llm_planner import PLANNER_VERSION, LLMPlanner, PlanningRefused
 
 GOOD = {
     "contract_version": "1",
@@ -44,7 +44,7 @@ def test_valid_graph_round_trips():
     out = p.plan("show python version")
     snap = out.snapshot()
     assert out.planner_name == "llm"
-    assert snap["planner"] == {"name": "llm", "version": "0.1.0"}
+    assert snap["planner"] == {"name": "llm", "version": PLANNER_VERSION}
     assert [n["key"] for n in snap["nodes"]] == ["n1", "n2"]
     assert snap["edges"] == [{"from": "n1", "to": "n2"}]
     assert snap["nodes"][1]["params"]["timeout_s"] == 30  # default applied
@@ -53,8 +53,8 @@ def test_valid_graph_round_trips():
 
 def test_context_reaches_the_prompt():
     p, provider = planner(GOOD)
-    p.plan("x", {"allowed_commands": ["python", "rg"]})
-    assert "python, rg" in provider.prompts[0]
+    p.plan("x", {"allowed_commands": ["python", "rg", "ls"]})
+    assert "ls, python, rg" in provider.prompts[0]
 
 
 def test_invalid_answer_is_repaired_once():
@@ -69,8 +69,9 @@ def test_invalid_answer_is_repaired_once():
 def test_repair_failure_raises():
     bad = {**GOOD, "nodes": []}
     p, _ = planner(bad, bad)
-    with pytest.raises(ValidationError):
+    with pytest.raises(PlanningRefused) as exc:
         p.plan("x")
+    assert exc.value.source == "policy"
 
 
 def test_model_supplied_risk_and_planner_are_ignored():

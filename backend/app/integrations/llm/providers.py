@@ -33,6 +33,9 @@ class Provider(Protocol):
     def complete(self, prompt: str, *, json_mode: bool) -> str: ...
 
 
+_GEMINI_OK_FINISH = {"STOP", "MAX_TOKENS", "FINISH_REASON_UNSPECIFIED"}
+
+
 class GeminiProvider:
     name = "gemini"
 
@@ -66,8 +69,10 @@ class GeminiProvider:
         if feedback is not None and getattr(feedback, "block_reason", None):
             raise Refused(f"gemini blocked the prompt: {feedback.block_reason}")
         candidates = getattr(resp, "candidates", None) or []
-        if candidates and str(getattr(candidates[0], "finish_reason", "")).endswith("SAFETY"):
-            raise Refused("gemini stopped for safety")
+        reason = str(getattr(candidates[0], "finish_reason", "") or "") if candidates else ""
+        reason = reason.rsplit(".", 1)[-1].upper()  # enum repr -> "SAFETY"
+        if reason and reason not in _GEMINI_OK_FINISH:
+            raise Refused(f"gemini stopped: {reason}")
         if not resp.text:
             raise Transient("gemini returned an empty response")
         return resp.text
@@ -107,6 +112,8 @@ class OpenAICompatibleProvider:
             if refusal:
                 raise Refused(f"{self.name} declined: {refusal}") from e
             raise ProviderError(f"{self.name} {e.status_code}: {e.message}") from e
+        if not getattr(resp, "choices", None):
+            raise Transient(f"{self.name} returned no choices")
         choice = resp.choices[0]
         refusal = getattr(choice.message, "refusal", None)
         if refusal:
