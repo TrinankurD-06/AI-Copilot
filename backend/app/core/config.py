@@ -25,5 +25,15 @@ class Settings(BaseSettings):
     PLANNER_MIN_CONFIDENCE: float = Field(default=0.5, ge=0.0, le=1.0)
     PLANNER_ALLOW_INLINE_CODE: bool = False
 
+    # Sandbox profile (docs/ARCHITECTURE.md). One fresh container per node.
+    SANDBOX_IMAGE: str = "python:3.12-alpine"
+    SANDBOX_TIMEOUT_S: int = Field(default=30, ge=1, le=120)
+    SANDBOX_MEMORY: str = "256m"
+    SANDBOX_NANO_CPUS: int = 1_000_000_000
+    SANDBOX_PIDS_LIMIT: int = 64
+    SANDBOX_USER: str = "65534:65534"
+    SANDBOX_OUTPUT_CAP: int = 64 * 1024
+    SANDBOX_RUNS_DIR: str = "runs"
+
 
 settings = Settings()

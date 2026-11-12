@@ -6,3 +6,4 @@ psycopg2-binary
 pydantic
 pydantic-settingsgoogle-genai
 openai
+docker
