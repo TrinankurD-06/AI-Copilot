@@ -70,7 +70,13 @@ def main() -> int:
 
     results = runner.run_graph(g, approve=approve)
     ok = bool(results) and all(r.status == "succeeded" for r in results)
-    print(f"\nRun {runner.plan_id}: {'OK' if ok else 'STOPPED'}")
+    if len(results) < len(g.nodes):
+        nxt = g.nodes[len(results)].key
+        verdict = f"STOPPED, {nxt} rejected by you" if ok else f"STOPPED, {results[-1].key} {results[-1].status}"
+        ok = False
+    else:
+        verdict = "COMPLETED" if ok else "FAILED"
+    print(f"\nRun {runner.plan_id}: {verdict}")
     for r in results:
         print(f"  {r.key}: {r.status} exit={r.exit_code}")
         if r.output.strip():
